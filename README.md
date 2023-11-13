@@ -2,12 +2,12 @@
 
 Header-only C++20 library for enums that support nesting, name reflection and identification through other strings 
 
-Currently supported minimum compiler versions: gcc 10.1, clang 13.0.0, msvc 19.30 (needs /Zc:preprocessor)
+Currently supported minimum compiler versions: gcc 10.1, clang 13.0.0, msvc 19.30 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work
 
 ---
 To start off, create your enum with the `NESTED_ENUM` macro
 ```c++
-NESTED_ENUM((Food, int), (, Meat, Vegetables, Fruits),
+NESTED_ENUM((Food, int, "Supermarket"), (, Meat, Vegetables, Fruits),
 	(ENUM, (Meat, uint64_t), (IDS, Beef, "quite tasty", Poultry, {}, Venison, "not as tasty"),
 		(ENUM, Beef, (, Rare, Medium Rare, Medium, Medium Well, Well Done))
 	),
