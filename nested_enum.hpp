@@ -193,10 +193,10 @@ namespace nested_enum
       if (character >= '0' && character <= '9')
         return (int8_t)(character - '0');
 
-      if (character >= 'A' && character <= 'Z')
+      if (character >= 'A' && character <= 'F')
         return (int8_t)(character - 'A' + 10);
 
-      if (character >= 'a' && character <= 'z')
+      if (character >= 'a' && character <= 'f')
         return (int8_t)(character - 'a' + 10);
 
       return 0;
@@ -226,13 +226,12 @@ namespace nested_enum
         isNegative = true;
       }
 
-      Int number = 0, decimal = 1;
-      for (size_t i = trimmedView.size(); i-- > 0; )
+      Int number = 0;
+      for (size_t i = 0; i < trimmedView.size(); ++i)
       {
         if (trimmedView[i] == '\'')
           continue;
-        number += static_cast<Int>(get_digit(trimmedView[i])) * decimal;
-        decimal *= 10;
+        number = number * 10 + static_cast<Int>(get_digit(trimmedView[i]));
       }
 
       if (isNegative)
