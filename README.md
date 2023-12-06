@@ -2,7 +2,7 @@
 
 Header-only C++20 library for enums that support nesting, name reflection and identification through other strings 
 
-Currently supported minimum compiler versions: gcc 10.1, clang 13.0.0, msvc 19.30 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work
+Currently tested working compiler versions: gcc 10.1, clang 13.0.0, msvc 19.30 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work
 
 ---
 To start off, create your enum with the `NESTED_ENUM` macro
