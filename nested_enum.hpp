@@ -3,7 +3,7 @@
 
 #define NESTED_ENUM_VERSION_MAJOR 0
 #define NESTED_ENUM_VERSION_MINOR 2
-#define NESTED_ENUM_VERSION_PATCH 1
+#define NESTED_ENUM_VERSION_PATCH 2
 
 #include <cstdint>
 #include <array>
@@ -421,32 +421,42 @@ namespace nested_enum
       }
     }
 
-    template<class Tuple>
-    constexpr auto tuple_of_arrays_to_array(Tuple &&tuple)
+		template<class T>
+    struct is_array : std::is_array<T> { };
+    template<class T, std::size_t N>
+    struct is_array<std::array<T, N>> : std::true_type { };
+
+    template<class TupleOrArray>
+    constexpr auto tuple_of_arrays_to_array(TupleOrArray &&tupleOrArray)
     {
-      constexpr auto function = []<auto Self, typename T, size_t N, typename ... Args>(std::array<T, N> first, Args ... args)
+      if constexpr (is_array<TupleOrArray>::value)
+        return tupleOrArray;
+      else
       {
-        if constexpr (sizeof...(Args) == 0)
-          return first;
-        else
+        constexpr auto function = []<auto Self, typename T, size_t N, typename ... Args>(std::array<T, N> first, Args ... args)
         {
-          auto next = Self.template operator()<Self>(args...);
-          std::array<T, N + next.size()> newArray;
+          if constexpr (sizeof...(Args) == 0)
+            return first;
+          else
+          {
+            auto next = Self.template operator()<Self>(args...);
+            std::array<T, N + next.size()> newArray;
 
-          for (size_t i = 0; i < first.size(); i++)
-            newArray[i] = first[i];
+            for (size_t i = 0; i < first.size(); i++)
+              newArray[i] = first[i];
 
-          for (size_t i = 0; i < next.size(); i++)
-            newArray[first.size() + i] = next[i];
+            for (size_t i = 0; i < next.size(); i++)
+              newArray[first.size() + i] = next[i];
 
-          return newArray;
-        }
-      };
+            return newArray;
+          }
+        };
 
-      return[&]<size_t ... Indices>(Tuple &&tupleToExpand, std::index_sequence<Indices...>)
-      {
-        return function.template operator()<function>(std::get<Indices>(tupleToExpand)...);
-      }(std::forward<Tuple>(tuple), std::make_index_sequence<std::tuple_size_v<Tuple>>{});
+        return[&]<size_t ... Indices>(TupleOrArray &&tupleToExpand, std::index_sequence<Indices...>)
+        {
+          return function.template operator()<function>(std::get<Indices>(tupleToExpand)...);
+        }(std::forward<TupleOrArray>(tupleOrArray), std::make_index_sequence<std::tuple_size_v<TupleOrArray>>{});
+      }
     }
 
     template<typename T, typename E>
@@ -1503,15 +1513,13 @@ namespace nested_enum
 // only forward declares a node because the user wants to define it later 
 #define NESTED_ENUM_INTERNAL_TREE_DEFER(parent, typeName, ...) struct typeName;
 
-
-
-
+//==================================================================================
+// The only 2 exported macros (minus versioning ones)
 
 // defines a (root) enum that can be expanded into a tree
 #define NESTED_ENUM(enumDefinition, ...) NESTED_ENUM_INTERNAL_EXPAND_SECOND(NESTED_ENUM_INTERNAL_SETUP(NO_PARENT, (false, (), NESTED_ENUM_INTERNAL_DEPAREN(enumDefinition)), __VA_ARGS__))
 
 // defines a deferred enum from a tree definition; needs to fill out the parent explicitly
 #define NESTED_ENUM_FROM(parent, enumDefinition, ...) NESTED_ENUM_INTERNAL_EXPAND_SECOND(NESTED_ENUM_INTERNAL_SETUP(FROM, (false, parent, NESTED_ENUM_INTERNAL_DEPAREN(enumDefinition)), __VA_ARGS__))
-
 
 #endif
