@@ -13,24 +13,24 @@ class Hyundai_t;
 class Toyota_t;
 
 NESTED_ENUM((Vehicle, std::uint32_t, "Category"), (Land, Watercraft, Amphibious, Aircraft),
-	(ENUM, (Land, std::uint64_t), (Motorcycle, Car, Bus, Truck, Tram, Train), 
-		(DEFER),
-		(ENUM, (Car, std::uint64_t, Car_t),
-			(
-				(Minicompact, VAL_ID, 10, "A-segment"), (Subcompact, VAL_ID, 20, "B-segment"),
-				(Compact    , VAL_ID, 30, "C-segment"), (MidSize   , VAL_ID, 40, "D-segment"), 
-				(FullSize   , VAL_ID, 50, "E-segment"), (Luxury    , VAL_ID, 60, "F-segment")
-			),
-			(ENUM, Minicompact,
-				(
-					(Fiat_500   , ID_TYPE, "1st", Fiat_t), 
-					(Hyundai_i10, ID_TYPE, "2nd", Hyundai_t), 
-					(Toyota_Aygo, ID_TYPE, "3rd", Toyota_t))
-				),
-			(ENUM, Subcompact, (Chevrolet_Aveo, Hyundai_Accent, Volkswagen_Polo))
-		),
-		(ENUM, Bus, (Shuttle, Trolley, School, Coach, Articulated))
-	)  
+  (ENUM, (Land, std::uint64_t), (Motorcycle, Car, Bus, Truck, Tram, Train), 
+    (DEFER),
+    (ENUM, (Car, std::uint64_t, Car_t),
+      (
+        (Minicompact, VAL_ID, 10, "A-segment"), (Subcompact, VAL_ID, 20, "B-segment"),
+        (Compact    , VAL_ID, 30, "C-segment"), (MidSize   , VAL_ID, 40, "D-segment"), 
+        (FullSize   , VAL_ID, 50, "E-segment"), (Luxury    , VAL_ID, 60, "F-segment")
+      ),
+      (ENUM, Minicompact,
+        (
+          (Fiat_500   , ID_TYPE, "1st", Fiat_t), 
+          (Hyundai_i10, ID_TYPE, "2nd", Hyundai_t), 
+          (Toyota_Aygo, ID_TYPE, "3rd", Toyota_t))
+        ),
+      (ENUM, Subcompact, (Chevrolet_Aveo, Hyundai_Accent, Volkswagen_Polo))
+    ),
+    (ENUM, Bus, (Shuttle, Trolley, School, Coach, Articulated))
+  )  
 )
 
 NESTED_ENUM_FROM(Vehicle::Land, Motorcycle, (Scooter, Cruiser, Sport, OffRoad))
@@ -62,14 +62,14 @@ The following parameters are only present for the topmost enum type
 	std::optional<std::string_view> id = Vehicle::Land::Car::Subcompact::id();
 	// "B-segment"
 
-	Vehicle amphibious = Vehicle(Vehicle::Amphibious);
+	Vehicle::type amphibious = Vehicle(Vehicle::Amphibious);
 	// Vehicle{ value == Vehicle::(internal enum type)::Amphibious }
-	std::string_view amphibiousString = amphibious.enum_string(true);
+	std::string_view amphibiousString = amphibious.enum_name(true);
 	// "Amphibious"
 	auto amphibiousValue = amphibious.enum_value();
 	// Vehicle::(internal enum type)::Amphibious
 
-	Vehicle watercraft = Vehicle::make_enum(1);
+	Vehicle::type watercraft = Vehicle::make_enum(1);
 	// Vehicle{ value == Vehicle::(internal enum type)::Watercraft }
 	std::optional<std::string_view> watercraftId = watercraft.enum_id();
 	// std::nullopt
@@ -109,11 +109,11 @@ The following parameters are only present for the topmost enum type
 	// std::tuple<std::type_identity<struct Vehicle::Watercraft>, 
 	//            std::type_identity<struct Vehicle::Amphibious>, 
 	//            std::type_identity<struct Vehicle::Aircraft>>{}
-	auto innerVehicleStrings = Vehicle::enum_strings<nested_enum::InnerNodes>(false);
+	auto innerVehicleStrings = Vehicle::enum_names<nested_enum::InnerNodes>(false);
 	// std::array<std::string_view, 1>{ "Category::Vehicle::Land" }
 	auto minicompactCarIds = Vehicle::Land::Car::Minicompact::enum_ids();
 	// std::array<std::string_view, 3>{ "1st", "2nd", "3rd" }
-	auto minicompactCarStringsAndIds = Vehicle::Land::Car::Minicompact::enum_strings_and_ids();
+	auto minicompactCarStringsAndIds = Vehicle::Land::Car::Minicompact::enum_names_and_ids();
 	// std::array<std::pair<std::string_view, std::string_view>, 3>{ 
 	//   { "Category::Vehicle::Land::Car::Minicompact::Fiat_500"   , "1st" }, 
 	//   { "Category::Vehicle::Land::Car::Minicompact::Hyundai_i10", "2nd" }, 
@@ -128,7 +128,7 @@ The following parameters are only present for the topmost enum type
 	// std::tuple<std::array<Vehicle::Land::Car::(internal enum type), 6>,
 	//            std::array<Vehicle::Land::Car::Minicompact::(internal enum type), 3>,
 	//            std::array<Vehicle::Land::Car::Subcompact::(internal enum type), 3>>
-	auto allCarEnumStrings = Vehicle::Land::Car::enum_strings_recursive<nested_enum::OuterNodes, true>();
+	auto allCarEnumStrings = Vehicle::Land::Car::enum_names_recursive<nested_enum::OuterNodes>();
 	// std::array<std::string_view, 10>{  
 	//   "Vehicle::Land::Car::Compact", "Vehicle::Land::Car::MidSize", 
 	//   "Vehicle::Land::Car::FullSize", "Vehicle::Land::Car::Luxury", 
@@ -142,7 +142,7 @@ The following parameters are only present for the topmost enum type
 
  - Inspection operations
 	```c++
-	auto motorcycleEnumString = Vehicle::Land::enum_string(Vehicle::Land::Motorcycle, true);
+	auto motorcycleEnumString = Vehicle::Land::enum_name(Vehicle::Land::Motorcycle, true);
 	// "Motorcycle"
 	auto CSegmentCar = Vehicle::enum_integer_recursive_by_id<"C-segment">();
 	// std::uint64_t(30)
@@ -155,13 +155,13 @@ The following parameters are only present for the topmost enum type
 
  2. Because this library utilises regular old C enums, the enum values themselves overshadow the created structs, therefore you have to use an elaborated type specifier (prepend `struct`) or the `::type` type alias helper if you need to specify the type explictly (i.e. inside a function parameter list)
 	```c++
-	void do_thing(Vehicle::Land thing);        // error: compiler sees Vehicle::(internal enum type)::Land
+	//void do_thing(Vehicle::Land thing);      // error: compiler sees Vehicle::(internal enum type)::Land
 	void do_thing(Vehicle::Land::type thing);  // ✔
 	void do_thing(struct Vehicle::Land thing); // ✔
 
 	int main()
 	{
-		do_thing(Vehicle::Land::Car);
+	  do_thing(Vehicle::Land::Car);
 	}
 	```
 
