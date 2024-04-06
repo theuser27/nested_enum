@@ -3,7 +3,7 @@
 
 #define NESTED_ENUM_VERSION_MAJOR 0
 #define NESTED_ENUM_VERSION_MINOR 3
-#define NESTED_ENUM_VERSION_PATCH 0
+#define NESTED_ENUM_VERSION_PATCH 1
 
 #include <cstdint>
 #include <cassert>
