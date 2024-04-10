@@ -8,10 +8,10 @@
 #include <cstdint>
 #include <cassert>
 #include <type_traits>
+#include <utility>
 #include <array>
 #include <string_view>
 #include <optional>
-#include <functional>
 #include <tuple>
 
 #ifndef NESTED_ENUM_DEFAULT_ENUM_TYPE
@@ -112,7 +112,7 @@ namespace nested_enum
     template<typename T>
     using pure_type_t = std::remove_pointer_t<std::remove_cvref_t<T>>;
 
-    template<typename T>
+    template<typename T = int>
     struct opt { bool isInitialised = false; T value{}; };
 
     template<typename TupleLike>
@@ -164,11 +164,11 @@ namespace nested_enum
       return[]<std::size_t ... Indices>(Callable &&callable, Tuple &&tuple, std::index_sequence<Indices...>) -> decltype(auto)
       {
         if constexpr (std::is_same_v<std::invoke_result_t<Callable, std::tuple_element_t<0, std::remove_cvref_t<Tuple>>>, void>)
-          (std::invoke(std::forward<Callable>(callable), std::get<Indices>(std::forward<Tuple>(tuple))), ...);
+          (callable(std::get<Indices>(std::forward<Tuple>(tuple))), ...);
         else if constexpr (attemptToReturnArray)
-          return std::array{ std::invoke(std::forward<Callable>(callable), std::get<Indices>(std::forward<Tuple>(tuple)))... };
+          return std::array{ callable(std::get<Indices>(std::forward<Tuple>(tuple)))... };
         else
-          return std::make_tuple(std::invoke(std::forward<Callable>(callable), std::get<Indices>(std::forward<Tuple>(tuple)))...);
+          return std::make_tuple(callable(std::get<Indices>(std::forward<Tuple>(tuple)))...);
       }(std::forward<Callable>(callable), std::forward<Tuple>(tuple),
         std::make_index_sequence<get_tuple_size<decltype(tuple)>()>{});
     }
@@ -1444,8 +1444,8 @@ namespace nested_enum
 
 #define NESTED_ENUM_INTERNAL_GET_VAL(...) NESTED_ENUM_INTERNAL_GET_VAL1(__VA_ARGS__)
 #define NESTED_ENUM_INTERNAL_GET_VAL1(name, ...) NESTED_ENUM_INTERNAL_GET_VAL_ID_TYPE((NESTED_ENUM_INTERNAL_GET_VAL_FINAL2, NESTED_ENUM_INTERNAL_GET_VAL_FINAL1), NESTED_ENUM_INTERNAL_GET_FIRST_OF_MANY, name __VA_OPT__(,) __VA_ARGS__)
-#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL1(name, ...) ::nested_enum::detail::opt<underlying_type>{}
-#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL2(name, ...) ::nested_enum::detail::opt<underlying_type>{ true, __VA_ARGS__ }
+#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL1(name, ...) {}
+#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL2(name, ...) { true, underlying_type(__VA_ARGS__) }
 
 #define NESTED_ENUM_INTERNAL_DEFINE_LINKED_TYPE(...) NESTED_ENUM_INTERNAL_DEFINE_LINKED_TYPE1(__VA_ARGS__)
 #define NESTED_ENUM_INTERNAL_DEFINE_LINKED_TYPE1(name, ...) struct name; friend struct name;                                                               \

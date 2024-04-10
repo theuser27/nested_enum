@@ -52,6 +52,7 @@ The following parameters are only present for the topmost enum type
  * If an enum value doesn't need to be specialised simply passing in `()` will explicitly default it. If any of the sections have only one argument, the parentheses can be omitted
  * If not specified, the default linked_type is `void`
  * Enums are not default constructible in order to avoid situations where 0 is not a valid enum value
+ * Because enums are just structs, they can be forward declared
 
 ## Function Examples
  - Basic enum/reflection operations
