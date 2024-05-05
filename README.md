@@ -55,7 +55,7 @@ The following parameters are only present for the topmost enum type
  * Enums are not default constructible in order to avoid situations where 0 is not a valid enum value
  * Because enums are just structs, they can be forward declared
 
-## Function Examples
+## Function Examples (also on [godbolt](https://godbolt.org/z/oEvae49Yh))
  - Basic enum/reflection operations
 
 	```c++
