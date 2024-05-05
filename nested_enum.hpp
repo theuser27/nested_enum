@@ -3,10 +3,9 @@
 
 #define NESTED_ENUM_VERSION_MAJOR 0
 #define NESTED_ENUM_VERSION_MINOR 3
-#define NESTED_ENUM_VERSION_PATCH 1
+#define NESTED_ENUM_VERSION_PATCH 2
 
 #include <cstdint>
-#include <cassert>
 #include <type_traits>
 #include <utility>
 #include <array>
@@ -23,19 +22,14 @@ namespace nested_enum
   template <std::size_t N>
   struct fixed_string
   {
-    using char_type = std::string_view::value_type;
-
     constexpr fixed_string() = default;
-    constexpr fixed_string(const char_type(&array)[N + 1]) noexcept
+    constexpr fixed_string(const char(&array)[N + 1]) noexcept
     {
       for (std::size_t i = 0; i < N; ++i)
         data[i] = array[i];
 
       data[N] = '\0';
     }
-
-    constexpr explicit fixed_string(std::string_view string) noexcept :
-      fixed_string{ string, std::make_index_sequence<N>{} } { }
 
     template<std::size_t M>
     [[nodiscard]] constexpr auto append(fixed_string<M> other) const noexcept
@@ -73,12 +67,7 @@ namespace nested_enum
     [[nodiscard]] constexpr operator std::string_view() const noexcept { return { data.data(), N }; }
     [[nodiscard]] static constexpr std::size_t size() noexcept { return N; }
 
-    std::array<char_type, N + 1> data;
-
-  private:
-    template <std::size_t... Indices>
-    constexpr fixed_string(std::string_view str, std::index_sequence<Indices...>) noexcept :
-      data{ str[Indices]..., static_cast<char_type>('\0') } { }
+    std::array<char, N + 1> data;
   };
 
   template <std::size_t N>
@@ -92,10 +81,6 @@ namespace nested_enum
     template<typename T>
     concept Enum = std::is_enum_v<T>;
 
-    template<typename T>
-    concept Integral = std::is_integral_v<T>;
-
-    // checks if a type is complete
     template <class T>
     inline constexpr auto is_complete_type_v = requires{ sizeof(T); };
 
@@ -109,17 +94,25 @@ namespace nested_enum
       using type = std::integer_sequence<typename std::decay_t<decltype(A)>::value_type, A[I]...>;
     };
 
+    struct placeholder {};
+
     template<typename T>
     using pure_type_t = std::remove_pointer_t<std::remove_cvref_t<T>>;
 
+    template<typename T, typename U>
+    concept same_pure_types = std::is_same_v<pure_type_t<T>, pure_type_t<U>>;
+
+    template<typename T, typename Callable, typename ... Args>
+    inline constexpr bool returnsT = requires (Callable callable, Args&& ... args)
+    {
+      { callable(std::forward<Args>(args)...) } -> same_pure_types<T>;
+    };
+
     template<typename T = int>
-    struct opt { bool isInitialised = false; T value{}; };
+    struct opt { bool isInitialised = false; T value = 0; };
 
     template<typename TupleLike>
-    constexpr std::size_t get_tuple_size()
-    {
-      return std::tuple_size_v<pure_type_t<TupleLike>>;
-    }
+    constexpr std::size_t get_tuple_size() { return std::tuple_size_v<pure_type_t<TupleLike>>; }
 
     inline constexpr fixed_string scopeResolution = "::";
 
@@ -161,19 +154,18 @@ namespace nested_enum
     template <bool attemptToReturnArray = true, class Callable, class Tuple>
     constexpr decltype(auto) apply_one(Callable &&callable, Tuple &&tuple)
     {
-      return[]<std::size_t ... Indices>(Callable &&callable, Tuple &&tuple, std::index_sequence<Indices...>) -> decltype(auto)
+      return [&]<std::size_t ... Indices>(std::index_sequence<Indices...>) -> decltype(auto)
       {
-        if constexpr (std::is_same_v<std::invoke_result_t<Callable, std::tuple_element_t<0, std::remove_cvref_t<Tuple>>>, void>)
+        if constexpr (returnsT<void, Callable, std::tuple_element_t<0, pure_type_t<Tuple>>>)
           (callable(std::get<Indices>(std::forward<Tuple>(tuple))), ...);
         else if constexpr (attemptToReturnArray)
           return std::array{ callable(std::get<Indices>(std::forward<Tuple>(tuple)))... };
         else
           return std::make_tuple(callable(std::get<Indices>(std::forward<Tuple>(tuple)))...);
-      }(std::forward<Callable>(callable), std::forward<Tuple>(tuple),
-        std::make_index_sequence<get_tuple_size<decltype(tuple)>()>{});
+      }(std::make_index_sequence<get_tuple_size<decltype(tuple)>()>{});
     }
 
-    template <auto Predicate, auto &TupleLike>
+    template <auto &TupleLike, auto Predicate>
     constexpr auto filter()
     {
       if constexpr (get_tuple_size<decltype(TupleLike)>() == 0)
@@ -195,7 +187,7 @@ namespace nested_enum
           return values;
         }();
 
-        return[]<std::size_t ... Indices>(std::index_sequence<Indices...>) -> decltype(auto)
+        return []<std::size_t ... Indices>(std::index_sequence<Indices...>) -> decltype(auto)
         {
           return std::make_tuple(std::get<Indices>(TupleLike)...);
         }(typename as_index_sequence<includedIndices>::type{});
@@ -369,7 +361,6 @@ namespace nested_enum
       }
       return name;
     }
-
     // returns the id of the given name (if it has one)
     static constexpr auto id() noexcept -> std::optional<std::string_view>
     {
@@ -378,7 +369,6 @@ namespace nested_enum
       else
         return P::enum_id(E::internalName);
     }
-
     // returns the global id of the topmost parent
     static constexpr auto global_prefix() -> std::string_view
     {
@@ -387,38 +377,28 @@ namespace nested_enum
       else
         return parent::global_prefix();
     }
-
-    // returns an instance of this enum with the given value if it exist
+    // returns an instance of this type with the given value if it exist
     template<typename T> requires std::is_integral_v<T> || std::is_floating_point_v<T>
     static constexpr auto make_enum(T t) -> std::optional<E>
     {
-      auto i = enum_value(static_cast<typename E::underlying_type>(t));
-      if (i.has_value())
-        return E{ i.value() };
-      else
-        return {};
+      return enum_value(static_cast<typename E::underlying_type>(t));
     }
 
 
     // returns the string of the currently held value
-    constexpr auto enum_name(bool clean = false) const noexcept
+    constexpr auto enum_name(bool clean = false) const noexcept -> std::string_view
     {
       return enum_name(static_cast<const E &>(*this).internalValue, clean).value();
     }
     // returns the id of the currently held value
-    constexpr auto enum_id() const noexcept
+    constexpr auto enum_id() const noexcept -> std::optional<std::string_view>
     {
-      return enum_id(static_cast<const E &>(*this).internalValue).value();
+      return enum_id(static_cast<const E &>(*this).internalValue);
     }
     // returns the string and id of the currently held value
-    constexpr auto enum_name_and_id(bool clean = false) const noexcept
+    constexpr auto enum_name_and_id(bool clean = false) const noexcept -> std::optional<std::pair<std::string_view, std::optional<std::string_view>>>
     {
-      return enum_name_and_id(static_cast<const E &>(*this).internalValue, clean).value();
-    }
-    // returns the currently held value
-    constexpr auto enum_value() const noexcept
-    {
-      return static_cast<const E &>(*this).internalValue;
+      return enum_name_and_id(static_cast<const E &>(*this).internalValue, clean);
     }
     // returns the integer representation of the currently held value
     constexpr auto enum_integer() const noexcept
@@ -455,31 +435,28 @@ namespace nested_enum
         return E::enumValues;
       else
       {
-        constexpr auto valuesNeeded = detail::apply_one([]<typename T>(T &&) -> bool
+        constexpr auto valuesNeeded = detail::apply_one([]<typename T>(const std::type_identity<T> &) -> bool
+        {
+          if constexpr (!detail::is_complete_type_v<T>)
+            return Selection == OuterNodes;
+          else
           {
-            using subType = typename detail::pure_type_t<T>::type;
-
-            if constexpr (!detail::is_complete_type_v<subType>)
+            if constexpr (T::isLeaf)
               return Selection == OuterNodes;
             else
-            {
-              if constexpr (subType::isOuterNode)
-                return Selection == OuterNodes;
-              else
-                return Selection == InnerNodes;
-            }
-          },
-          E::subtypes);
+              return Selection == InnerNodes;
+          }
+        }, E::subtypes);
 
         constexpr auto result = [&]()
         {
           constexpr std::size_t size = detail::count_if(valuesNeeded,
             [](bool b) { return b == true; });
 
-          std::array<typename E::Value, size> values;
+          std::array<E, size> values = E::template internal_get_array_of_type<size>();
           for (std::size_t i = 0, j = 0; i < valuesNeeded.size(); i++)
             if (valuesNeeded[i])
-              values[j++] = E::enumValues[i];
+              values[j++] = E{ E::enumValues[i] };
           return values;
         }();
 
@@ -496,19 +473,16 @@ namespace nested_enum
         if (selection == AllNodes)
           return E::enumValues.size();
 
-        auto counts = detail::apply_one([&]<typename T>(T &&) -> std::size_t
-          {
-            using subType = typename detail::pure_type_t<T>::type;
-
-            if ((selection == AllNodes) ||
-              (detail::is_complete_type_v<subType> && !subType::isOuterNode && selection == InnerNodes) ||
-              (detail::is_complete_type_v<subType> && subType::isOuterNode && selection == OuterNodes) ||
-              (!detail::is_complete_type_v<subType> && selection == OuterNodes))
-              return 1;
-            else
-              return 0;
-          },
-          E::subtypes);
+        auto counts = detail::apply_one([&]<typename T>(const std::type_identity<T> &) -> std::size_t
+        {
+          if ((selection == AllNodes) ||
+            (detail::is_complete_type_v<T> && !T::isLeaf && selection == InnerNodes) ||
+            (detail::is_complete_type_v<T> && T::isLeaf && selection == OuterNodes) ||
+            (!detail::is_complete_type_v<T> && selection == OuterNodes))
+            return 1;
+          else
+            return 0;
+        }, E::subtypes);
 
         std::size_t total = 0;
         for (auto count : counts)
@@ -526,7 +500,7 @@ namespace nested_enum
         auto enumValues = enum_values<Selection>();
         std::array<typename E::underlying_type, enumValues.size()> result;
         for (std::size_t i = 0; i < result.size(); i++)
-          result[i] = (typename E::underlying_type)enumValues[i];
+          result[i] = (typename E::underlying_type)enumValues[i].internalValue;
 
         return result;
       }();
@@ -542,26 +516,23 @@ namespace nested_enum
       {
         constexpr auto result = []()
         {
-          constexpr auto idsNeeded = detail::apply_one([]<typename T>(T &&) -> bool
+          constexpr auto idsNeeded = detail::apply_one([]<typename T>(const std::type_identity<T> &) -> bool
+          {
+            if constexpr (Selection == AllNodes)
+              return true;
+            else
             {
-              if constexpr (Selection == AllNodes)
-                return true;
+              if constexpr (!detail::is_complete_type_v<T>)
+                return Selection == OuterNodes;
               else
               {
-                using subType = typename detail::pure_type_t<T>::type;
-
-                if constexpr (!detail::is_complete_type_v<subType>)
+                if constexpr (T::isLeaf)
                   return Selection == OuterNodes;
                 else
-                {
-                  if constexpr (subType::isOuterNode)
-                    return Selection == OuterNodes;
-                  else
-                    return Selection == InnerNodes;
-                }
+                  return Selection == InnerNodes;
               }
-            },
-            E::subtypes);
+            }
+          }, E::subtypes);
 
           constexpr std::size_t size = detail::count_if(idsNeeded,
             [](bool b) { return b == true; });
@@ -592,26 +563,23 @@ namespace nested_enum
       {
         constexpr auto generateStrings = []<bool cleanString>()
         {
-          constexpr auto valuesNeeded = detail::apply_one([]<typename T>(T &&) -> bool
+          constexpr auto valuesNeeded = detail::apply_one([]<typename T>(const std::type_identity<T> &) -> bool
+          {
+            if constexpr (Selection == AllNodes)
+              return true;
+            else
             {
-              if constexpr (Selection == AllNodes)
-                return true;
+              if constexpr (!detail::is_complete_type_v<T>)
+                return Selection == OuterNodes;
               else
               {
-                using subType = typename detail::pure_type_t<T>::type;
-
-                if constexpr (!detail::is_complete_type_v<subType>)
+                if constexpr (T::isLeaf)
                   return Selection == OuterNodes;
                 else
-                {
-                  if constexpr (subType::isOuterNode)
-                    return Selection == OuterNodes;
-                  else
-                    return Selection == InnerNodes;
-                }
+                  return Selection == InnerNodes;
               }
-            },
-            E::subtypes);
+            }
+          }, E::subtypes);
 
           constexpr std::size_t size = detail::count_if(valuesNeeded,
             [](bool b) { return b == true; });
@@ -643,26 +611,23 @@ namespace nested_enum
       {
         constexpr auto stringsAndIds = []()
         {
-          constexpr auto valuesNeeded = detail::apply_one([]<typename T>(T &&) -> bool
+          constexpr auto valuesNeeded = detail::apply_one([]<typename T>(const std::type_identity<T> &) -> bool
+          {
+            if constexpr (Selection == AllNodes)
+              return true;
+            else
             {
-              if constexpr (Selection == AllNodes)
-                return true;
+              if constexpr (!detail::is_complete_type_v<T>)
+                return Selection == OuterNodes;
               else
               {
-                using subType = typename detail::pure_type_t<T>::type;
-
-                if constexpr (!detail::is_complete_type_v<subType>)
+                if constexpr (T::isLeaf)
                   return Selection == OuterNodes;
                 else
-                {
-                  if constexpr (subType::isOuterNode)
-                    return Selection == OuterNodes;
-                  else
-                    return Selection == InnerNodes;
-                }
+                  return Selection == InnerNodes;
               }
-            },
-            E::subtypes);
+            }
+          }, E::subtypes);
 
           constexpr std::size_t size = detail::count_if(valuesNeeded, [](bool b) { return b == true; });
 
@@ -703,26 +668,23 @@ namespace nested_enum
         return std::tuple<>{};
       else
       {
-        return detail::filter<[]<typename T>(T &&) -> bool
+        return detail::filter<E::subtypes, []<typename T>(const std::type_identity<T> &) -> bool
+        {
+          if constexpr (Selection == AllNodes)
+            return true;
+          else
           {
-            if constexpr (Selection == AllNodes)
-              return true;
+            if constexpr (!detail::is_complete_type_v<T>)
+              return Selection == OuterNodes;
             else
             {
-              using subType = typename detail::pure_type_t<T>::type;
-
-              if constexpr (!detail::is_complete_type_v<subType>)
+              if constexpr (T::isLeaf)
                 return Selection == OuterNodes;
               else
-              {
-                if constexpr (subType::isOuterNode)
-                  return Selection == OuterNodes;
-                else
-                  return Selection == InnerNodes;
-              }
+                return Selection == InnerNodes;
             }
-          },
-          E::subtypes>();
+          }
+        }>();
       }
     }
 
@@ -734,15 +696,13 @@ namespace nested_enum
         return count;
       else
       {
-        auto subtypesSizes = detail::apply_one([&]<typename T>(T &&) -> std::size_t
-          {
-            using subType = typename detail::pure_type_t<T>::type;
-            if constexpr (detail::is_complete_type_v<subType> && !subType::isOuterNode)
-              return subType::enum_count_recursive_internal(selection);
-            else
-              return (selection == OuterNodes) || (selection == AllNodes);
-          },
-          E::subtypes);
+        auto subtypesSizes = detail::apply_one([&]<typename T>(const std::type_identity<T> &) -> std::size_t
+        {
+          if constexpr (detail::is_complete_type_v<T> && !T::isLeaf)
+            return T::enum_count_recursive_internal(selection);
+          else
+            return (selection == OuterNodes) || (selection == AllNodes);
+        }, E::subtypes);
 
         for (auto subtypeSize : subtypesSizes)
           count += subtypeSize;
@@ -767,77 +727,90 @@ namespace nested_enum
         return std::tuple<>{};
       else
       {
-        // checking which of the contained "enums" we need (outer or inner nodes)
-        constexpr auto subtypesNeeded = detail::apply_one([]<typename T>(T &&) -> bool
-          {
-            if constexpr (Selection == AllNodes)
-              return true;
-            else
-            {
-              using subType = typename detail::pure_type_t<T>::type;
-
-              if constexpr (!detail::is_complete_type_v<subType>)
-                return Selection == OuterNodes;
-              else
-              {
-                if constexpr (subType::isOuterNode)
-                  return Selection == OuterNodes;
-                else
-                  return Selection == InnerNodes;
-              }
-            }
-          },
-          E::subtypes);
-
         // getting an array of values we need
         constexpr auto values = [&]()
         {
-          constexpr std::size_t size = detail::count_if(subtypesNeeded,
-            [](bool b) { return b == true; });
+          using valueType = decltype(Predicate.template operator()<E>(0));
 
-          return Predicate.template operator()<E, size>(subtypesNeeded);
+          constexpr auto valuesAndSize = []()
+          {
+            // unfortunately enums are not default constructible
+            // so we have to resort to hacks like this one
+            auto values = []()
+            {
+              if constexpr (std::is_same_v<valueType, E>)
+                return E::template internal_get_array_of_type<E::enumValues.size()>();
+              else
+                return std::array<valueType, E::enumValues.size()>{};
+            }();
+
+            std::size_t size = 0;
+            std::size_t index = 0;
+            // checking which of the contained "enums" we need (outer or inner nodes)
+            detail::apply_one([&]<typename T>(const std::type_identity<T> &)
+            {
+              if constexpr (Selection == AllNodes || 
+                (!detail::is_complete_type_v<T> && Selection == OuterNodes) ||
+                (detail::is_complete_type_v<T> && (T::isLeaf && Selection == OuterNodes) || (Selection == InnerNodes)))
+              {
+                values[size++] = Predicate.template operator()<E>(index);
+              }
+              index++;
+            }, E::subtypes);
+
+            return std::pair{ values, size };
+          }();
+          
+          auto values = []<std::size_t N>()
+          {
+            if constexpr (std::is_same_v<valueType, E>)
+              return E::template internal_get_array_of_type<N>();
+            else
+              return std::array<valueType, N>{};
+          }.template operator()<valuesAndSize.second>();
+          
+          for (std::size_t i = 0; i < values.size(); ++i)
+            values[i] = valuesAndSize.first[i];
+
+          return values;
         }();
 
         // new tuple of only the inner enum nodes
-        constexpr auto subtypesToQuery = detail::filter<[]<typename T>(T &&) -> bool
+        constexpr auto subtypesToQuery = detail::filter<E::subtypes, []<typename T>(const std::type_identity<T> &) -> bool
+        {
+          // does the enum exist
+          if constexpr (!detail::is_complete_type_v<T>)
+            return false;
+          else
           {
-            using subType = typename detail::pure_type_t<T>::type;
-
-            // does the enum exist
-            if constexpr (!detail::is_complete_type_v<subType>)
+            // does the enum have any values
+            if constexpr (detail::get_tuple_size<decltype(T::subtypes)>() == 0)
               return false;
+            // different branches based on what we want
+            else if constexpr ((Selection == AllNodes) || (Selection == OuterNodes))
+              return true;
             else
             {
-              // does the enum have any values
-              if constexpr (detail::get_tuple_size<decltype(subType::subtypes)>() == 0)
-                return false;
-              // different branches based on what we want
-              else if constexpr ((Selection == AllNodes) || (Selection == OuterNodes))
-                return true;
-              else
+              std::size_t size = 0;
+              detail::apply_one([&size]<typename U>(const std::type_identity<U> &)
               {
-                constexpr auto subSubtypesNeeded = detail::filter<[]<typename U>(U &&) -> bool
-                  {
-                    using subSubType = typename detail::pure_type_t<U>::type;
-                    return detail::is_complete_type_v<subSubType> && !subSubType::isOuterNode;
-                  },
-                  subType::subtypes>();
+                if constexpr (detail::is_complete_type_v<U> && !U::isLeaf)
+                  size++;
+              }, T::subtypes);
 
-                return detail::get_tuple_size<decltype(subSubtypesNeeded)>() != 0;
-              }
+              return size != 0;
             }
-          },
-          E::subtypes>();
+          }
+        }>();
 
         // returning only the values if we don't have any subtypes to query
         if constexpr (detail::get_tuple_size<decltype(subtypesToQuery)>() == 0)
           return std::make_tuple(values);
         else
         {
-          constexpr auto subtypesTuples = detail::apply_one<false>([]<typename T>(T &&)
+          constexpr auto subtypesTuples = detail::apply_one<false>([]<typename T>(const std::type_identity<T> &)
           {
-            using subType = typename detail::pure_type_t<T>::type;
-            return subType::template return_recursive_internal<Predicate, Selection>();
+            return T::template return_recursive_internal<Predicate, Selection>();
           }, subtypesToQuery);
 
           if constexpr (values.size() == 0)
@@ -853,15 +826,9 @@ namespace nested_enum
     template<InnerOuterAll Selection = AllNodes>
     static constexpr auto enum_values_recursive() noexcept
     {
-      constexpr auto predicate = []<typename T, std::size_t size>(auto array)
+      constexpr auto predicate = []<typename T>(std::size_t index)
       {
-        std::array<typename T::Value, size> values{};
-
-        for (std::size_t i = 0, j = 0; i < array.size(); ++i)
-          if (array[i])
-            values[j++] = T::enumValues[i];
-
-        return values;
+        return T{ T::enumValues[index] };
       };
 
       constexpr auto tuple = detail::tupleMagic::flatten(return_recursive_internal<predicate, Selection>());
@@ -873,15 +840,9 @@ namespace nested_enum
     template<InnerOuterAll Selection = AllNodes, bool flattenTuple = true, bool clean = false>
     static constexpr auto enum_names_recursive() noexcept
     {
-      constexpr auto predicate = []<typename T, std::size_t size>(auto array)
+      constexpr auto predicate = []<typename T>(std::size_t index)
       {
-        std::array<std::string_view, size> values{};
-
-        for (std::size_t i = 0, j = 0; i < array.size(); ++i)
-          if (array[i])
-            values[j++] = detail::get_substring(T::enumNames, i, clean);
-        
-        return values;
+        return detail::get_substring(T::enumNames, index, clean);
       };
 
       if constexpr (flattenTuple)
@@ -901,14 +862,9 @@ namespace nested_enum
     template<InnerOuterAll Selection = AllNodes, bool flattenTuple = true>
     static constexpr auto enum_ids_recursive() noexcept
     {
-      constexpr auto predicate = []<typename T, std::size_t size>(auto array)
+      constexpr auto predicate = []<typename T>(std::size_t index)
       {
-        std::array<std::optional<std::string_view>, size> values{};
-        for (std::size_t i = 0, j = 0; i < array.size(); ++i)
-          if (array[i])
-            values[j++] = T::enumIds[i];
-
-        return values;
+        return T::enumIds[index];
       };
 
       if constexpr (flattenTuple)
@@ -928,14 +884,9 @@ namespace nested_enum
     template<InnerOuterAll Selection = AllNodes, bool flattenTuple = true, bool clean = false>
     static constexpr auto enum_names_and_ids_recursive() noexcept
     {
-      constexpr auto predicate = []<typename T, std::size_t size>(auto array)
+      constexpr auto predicate = []<typename T>(std::size_t index)
       {
-        std::array<std::pair<std::string_view, std::optional<std::string_view>>, size> values{};
-        for (std::size_t i = 0, j = 0; i < array.size(); ++i)
-          if (array[i])
-            values[j++] = { detail::get_substring(T::enumNames, i, clean), T::enumIds[i] };
-
-        return values;
+        return std::pair{ detail::get_substring(T::enumNames, index, clean), T::enumIds[index] };
       };
 
       if constexpr (flattenTuple)
@@ -1071,45 +1022,42 @@ namespace nested_enum
           return std::optional<std::type_identity<E>>{};
         else
         {
-          constexpr auto subtypesToQuery = detail::filter<[]<typename T>(T &&) -> bool
-            {
-              return detail::is_complete_type_v<typename detail::pure_type_t<T>::type>;
-            },
-            E::subtypes>();
+          constexpr auto subtypesResults = detail::apply_one<false>([]<typename T>(const std::type_identity<T> &)
+          {
+            if constexpr (detail::is_complete_type_v<T>)
+              return T::template find_type_recursive_internal<Predicate>();
+            else
+              return std::type_identity<detail::placeholder>{};
+          }, E::subtypes);
 
-          if constexpr (detail::get_tuple_size<decltype(subtypesToQuery)>() == 0)
+          constexpr auto indexPair = [&]()
+          {
+            bool found = false;
+            std::size_t index = 0;
+            detail::apply_one([&](const auto &optional)
+            {
+              if constexpr (std::is_same_v<std::type_identity<detail::placeholder>, 
+                detail::pure_type_t<decltype(optional)>>)
+                return;
+              else if (!found)
+              {
+                if (optional.has_value())
+                {
+                  found = true;
+                  return;
+                }
+
+                index++;
+              }
+            }, subtypesResults);
+
+            return std::pair{ found, index };
+          }();
+
+          if constexpr (!indexPair.first)
             return std::optional<std::type_identity<E>>{};
           else
-          {
-            constexpr auto subtypesResults = detail::apply_one<false>([]<typename T>(T &&)
-              {
-                using subType = typename detail::pure_type_t<T>::type;
-                return subType::template find_type_recursive_internal<Predicate>();
-              },
-              subtypesToQuery);
-
-            constexpr auto areIncluded = detail::apply_one([](auto &&optional) -> bool
-              {
-                return optional.has_value();
-              }, subtypesResults);
-
-            constexpr auto index = [](const auto container, const auto value)
-            {
-              auto first = container.begin();
-              auto last = container.end();
-
-              for (; first != last; ++first)
-                if (*first == value)
-                  return std::optional{ first - container.begin() };
-
-              return std::optional<std::ptrdiff_t>{};
-            }(areIncluded, true);
-
-            if constexpr (!index.has_value())
-              return std::optional<std::type_identity<E>>{};
-            else
-              return std::get<index.value()>(subtypesResults);
-          }
+            return std::get<indexPair.second>(subtypesResults);
         }
       }
     }
@@ -1118,9 +1066,9 @@ namespace nested_enum
     static constexpr auto enum_name_recursive(detail::Enum auto value, bool clean = false) -> std::optional<std::string_view>
     {
       constexpr auto typeId = find_type_recursive_internal<[]<typename T>()
-        {
-          return std::is_same_v<decltype(value), typename T::Value>;
-        }>();
+      {
+        return std::is_same_v<decltype(value), typename T::Value>;
+      }>();
 
       if constexpr (!typeId.has_value())
         return {};
@@ -1164,9 +1112,9 @@ namespace nested_enum
     static constexpr auto enum_id_recursive(detail::Enum auto value) -> std::optional<std::string_view>
     {
       constexpr auto typeId = find_type_recursive_internal<[]<typename T>()
-        {
-          return std::is_same_v<decltype(value), typename T::Value>;
-        }>();
+      {
+        return std::is_same_v<decltype(value), typename T::Value>;
+      }>();
 
       if constexpr (!typeId.has_value())
         return {};
@@ -1210,10 +1158,10 @@ namespace nested_enum
     static constexpr auto enum_integer_recursive()
     {
       constexpr auto typeId = find_type_recursive_internal<[]<typename T>()
-        {
-          constexpr auto enumInteger = T::enum_integer(std::string_view(enumName));
-          return enumInteger.has_value();
-        }>();
+      {
+        constexpr auto enumInteger = T::enum_integer(std::string_view(enumName));
+        return enumInteger.has_value();
+      }>();
 
       if constexpr (!typeId.has_value())
         return std::optional<typename E::underlying_type>{};
@@ -1225,13 +1173,13 @@ namespace nested_enum
     }
     // returns the underlying integer of an enum value that is located somewhere in the subtree, specified by its id
     template<fixed_string id>
-    static constexpr auto enum_integer_recursive_by_id()
+    static constexpr auto enum_integer_by_id_recursive()
     {
       constexpr auto typeId = find_type_recursive_internal<[]<typename T>()
-        {
-          constexpr auto value = T::enum_integer_by_id(std::string_view(id));
-          return value.has_value();
-        }>();
+      {
+        constexpr auto value = T::enum_integer_by_id(std::string_view(id));
+        return value.has_value();
+      }>();
 
       if constexpr (!typeId.has_value())
         return std::optional<typename E::underlying_type>{};
@@ -1246,10 +1194,10 @@ namespace nested_enum
     static constexpr auto enum_value_recursive()
     {
       constexpr auto typeId = find_type_recursive_internal<[]<typename T>()
-        {
-          constexpr auto value = T::enum_value(std::string_view(enumName));
-          return value.has_value();
-        }>();
+      {
+        constexpr auto value = T::enum_value(std::string_view(enumName));
+        return value.has_value();
+      }>();
 
       if constexpr (!typeId.has_value())
         return std::optional<typename E::Value>{};
@@ -1261,13 +1209,13 @@ namespace nested_enum
     }
     // returns an enum value that is located somewhere in the subtree, specified by its id
     template<fixed_string id>
-    static constexpr auto enum_value_recursive_by_id()
+    static constexpr auto enum_value_by_id_recursive()
     {
       constexpr auto typeId = find_type_recursive_internal<[]<typename T>()
-        {
-          constexpr auto value = T::enum_value_by_id(std::string_view(id));
-          return value.has_value();
-        }>();
+      {
+        constexpr auto value = T::enum_value_by_id(std::string_view(id));
+        return value.has_value();
+      }>();
 
       if constexpr (!typeId.has_value())
         return std::optional<typename E::Value>{};
@@ -1433,8 +1381,8 @@ namespace nested_enum
 
 #define NESTED_ENUM_INTERNAL_GET_VAL(...) NESTED_ENUM_INTERNAL_GET_VAL1(__VA_ARGS__)
 #define NESTED_ENUM_INTERNAL_GET_VAL1(name, ...) NESTED_ENUM_INTERNAL_GET_VAL_ID_TYPE((NESTED_ENUM_INTERNAL_GET_VAL_FINAL2, NESTED_ENUM_INTERNAL_GET_VAL_FINAL1), NESTED_ENUM_INTERNAL_GET_FIRST_OF_MANY, name __VA_OPT__(,) __VA_ARGS__)
-#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL1(name, ...) {}
-#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL2(name, ...) { true, underlying_type(__VA_ARGS__) }
+#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL1(name, ...) ::nested_enum::detail::opt<underlying_type>{ false, underlying_type(0) }
+#define NESTED_ENUM_INTERNAL_GET_VAL_FINAL2(name, ...) ::nested_enum::detail::opt<underlying_type>{ true, underlying_type(__VA_ARGS__) }
 
 #define NESTED_ENUM_INTERNAL_DEFINE_LINKED_TYPE(...) NESTED_ENUM_INTERNAL_DEFINE_LINKED_TYPE1(__VA_ARGS__)
 #define NESTED_ENUM_INTERNAL_DEFINE_LINKED_TYPE1(name, ...) struct name; friend struct name;                                                               \
@@ -1472,74 +1420,65 @@ namespace nested_enum
 #define NESTED_ENUM_INTERNAL_STRUCT_IDENTITY(typeName) ::std::type_identity<struct typeName>
 
 #define NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                    \
-    constexpr typeName() noexcept = delete;                                                                                                   \
+  private:                                                                                                                                    \
+    constexpr typeName() noexcept = default;                                                                                                  \
+  public:                                                                                                                                     \
+    template<::std::size_t N>                                                                                                                 \
+    static constexpr auto internal_get_array_of_type() noexcept { return ::std::array<typeName, N>{}; }                                       \
     constexpr typeName(const typeName &other) noexcept = default;                                                                             \
-    constexpr typeName(auto value) noexcept                                                                                                   \
-    {                                                                                                                                         \
-        static_assert(::std::is_same_v<Value, decltype(value)>, "Value is not of the same enum type");                                        \
-        this->internalValue = value;                                                                                                          \
-    }                                                                                                                                         \
+    constexpr typeName(Value value) noexcept { internalValue = value; }                                                                       \
     constexpr typeName &operator=(const typeName &other) noexcept = default;                                                                  \
-    constexpr typeName &operator=(auto value) noexcept                                                                                        \
-    {                                                                                                                                         \
-        static_assert(::std::is_same_v<Value, decltype(value)>, "Value is not of the same enum type");                                        \
-        this->internalValue = value;                                                                                                          \
-        return *this;                                                                                                                         \
-    }
+    constexpr typeName &operator=(Value value) noexcept { internalValue = value; return *this; }
 
-#define NESTED_ENUM_INTERNAL_DEFINITION_NO_PARENT(isLeaf, placeholder, typeName, ...)                                                         \
+#define NESTED_ENUM_INTERNAL_DEFINITION_NO_PARENT(isLeafValue, placeholder, typeName, ...)                                                    \
   struct typeName : public ::nested_enum::nested_enum<struct typeName, struct typeName>                                                       \
   {                                                                                                                                           \
-    NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                        \
-                                                                                                                                              \
     using underlying_type = NESTED_ENUM_INTERNAL_VALUE_IF_MISSING(NESTED_ENUM_DEFAULT_ENUM_TYPE,                                              \
       NESTED_ENUM_INTERNAL_GET_FIRST_OF_MANY(__VA_ARGS__));                                                                                   \
     using linked_type = NESTED_ENUM_INTERNAL_VALUE_IF_MISSING(typeName, NESTED_ENUM_INTERNAL_GET_THIRD_IF_EXISTS(__VA_ARGS__));               \
                                                                                                                                               \
     static constexpr auto internalGlobalPrefix = ::nested_enum::detail::get_prefix<                                                           \
       __VA_OPT__(NESTED_ENUM_INTERNAL_SKIP_FIRST_OF_MANY(__VA_ARGS__))>();                                                                    \
-    static constexpr bool isOuterNode = isLeaf;                                                                                               \
+    static constexpr bool isLeaf = isLeafValue;                                                                                               \
     static constexpr auto internalName = create_name(::nested_enum::fixed_string{ #typeName });
 
-#define NESTED_ENUM_INTERNAL_DEFINITION_(isLeaf, parent, typeName, ...)                                                                       \
-  struct typeName : public ::nested_enum::nested_enum<struct typeName, struct parent>           		                                          \
+#define NESTED_ENUM_INTERNAL_DEFINITION_(isLeafValue, parent, typeName, ...)                                                                  \
+  struct typeName : public ::nested_enum::nested_enum<struct typeName, struct parent>                                                         \
   {                                                                                                                                           \
-    NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                        \
-                                                                                                                                              \
     using underlying_type = NESTED_ENUM_INTERNAL_VALUE_IF_MISSING(NESTED_ENUM_DEFAULT_ENUM_TYPE,                                              \
       NESTED_ENUM_INTERNAL_GET_FIRST_OF_MANY(__VA_ARGS__));                                                                                   \
     using linked_type = parent::typeName##_linked_type;                                                                                       \
                                                                                                                                               \
-    static constexpr bool isOuterNode = isLeaf;                                                                                               \
+    static constexpr bool isLeaf = isLeafValue;                                                                                               \
     static constexpr auto internalName = create_name(::nested_enum::fixed_string{ #typeName });                                               \
-    static constexpr auto value() { constexpr auto result = (struct parent)(parent::typeName); return result; }
+    static constexpr auto value() { struct parent result = parent::typeName; return result; }
 
-#define NESTED_ENUM_INTERNAL_DEFINITION_FROM(isLeaf, parent, typeName, ...)                                                                   \
+#define NESTED_ENUM_INTERNAL_DEFINITION_FROM(isLeafValue, parent, typeName, ...)                                                              \
   struct parent::typeName : public ::nested_enum::nested_enum<struct parent::typeName, struct parent>                                         \
   {                                                                                                                                           \
-    NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                        \
-                                                                                                                                              \
     using underlying_type = NESTED_ENUM_INTERNAL_VALUE_IF_MISSING(NESTED_ENUM_DEFAULT_ENUM_TYPE,                                              \
       NESTED_ENUM_INTERNAL_GET_FIRST_OF_MANY(__VA_ARGS__));                                                                                   \
     using linked_type = parent::typeName##_linked_type;                                                                                       \
                                                                                                                                               \
-    static constexpr bool isOuterNode = isLeaf;                                                                                               \
+    static constexpr bool isLeaf = isLeafValue;                                                                                               \
     static constexpr auto internalName = create_name(::nested_enum::fixed_string{ #typeName });                                               \
-    static constexpr auto value() { constexpr auto result = (struct parent)(parent::typeName); return result; }
+    static constexpr auto value() { struct parent result = parent::typeName; return result; }
 
 
-#define NESTED_ENUM_INTERNAL_BODY_(...)                                                                                                       \
+#define NESTED_ENUM_INTERNAL_BODY_(typeName, ...)                                                                                             \
                                                                                                                                               \
     enum Value : underlying_type { };                                                                                                         \
     Value internalValue;                                                                                                                      \
+                                                                                                                                              \
+    NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                        \
                                                                                                                                               \
     constexpr operator Value() const noexcept { return internalValue; }                                                                       \
                                                                                                                                               \
     static constexpr ::std::array<Value, 0> enumValues{};                                                                                     \
                                                                                                                                               \
-    static constexpr ::std::array<std::string_view, 0> enumIds{};	                                                                            \
+    static constexpr ::std::array<std::string_view, 0> enumIds{};                                                                             \
                                                                                                                                               \
-    static constexpr ::std::tuple<> subtypes{};                                                                                  	            \
+    static constexpr ::std::tuple<> subtypes{};                                                                                               \
   };
 
 #define NESTED_ENUM_INTERNAL_BODY_CONTINUE(typeName, bodyArguments, structsArguments)                                                         \
@@ -1547,6 +1486,8 @@ namespace nested_enum
     enum Value : underlying_type { NESTED_ENUM_INTERNAL_FOR_EACH(NESTED_ENUM_INTERNAL_GET_FIRST_OF_ONE,                                       \
       NESTED_ENUM_INTERNAL_DEFINE_ENUM, (,), NESTED_ENUM_INTERNAL_DEPAREN(bodyArguments)) };                                                  \
     Value internalValue;                                                                                                                      \
+                                                                                                                                              \
+    NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                        \
                                                                                                                                               \
     constexpr operator Value() const noexcept { return internalValue; }                                                                       \
                                                                                                                                               \

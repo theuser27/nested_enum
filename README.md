@@ -49,6 +49,7 @@ The following parameters are only present for the topmost enum type
  - [linked type] - does the same as specifing a `TYPE` for a value but for the topmost enum type
 
 ### Miscelaneous Information
+ * You can define `NESTED_ENUM_DEFAULT_ENUM_TYPE` before including the header to change the default enum type from `std::int32_t`
  * If an enum value doesn't need to be specialised simply passing in `()` will explicitly default it. If any of the sections have only one argument, the parentheses can be omitted
  * If not specified, the default linked_type is `void`
  * Enums are not default constructible in order to avoid situations where 0 is not a valid enum value
@@ -67,10 +68,8 @@ The following parameters are only present for the topmost enum type
 	// Vehicle{ value == Vehicle::(internal enum type)::Amphibious }
 	std::string_view amphibiousString = amphibious.enum_name(true);
 	// "Amphibious"
-	auto amphibiousValue = amphibious.enum_value();
-	// Vehicle::(internal enum type)::Amphibious
 
-	Vehicle::type watercraft = Vehicle::make_enum(1);
+	Vehicle::type watercraft = Vehicle::make_enum(1).value();
 	// Vehicle{ value == Vehicle::(internal enum type)::Watercraft }
 	std::optional<std::string_view> watercraftId = watercraft.enum_id();
 	// std::nullopt
@@ -103,7 +102,7 @@ The following parameters are only present for the topmost enum type
  - Batch operations
 	```c++
 	auto vehicleValues = Vehicle::enum_values();
-	// std::array<Vehicle::(internal enum type), 4>{ Land, Watercraft, Amphibious, Aircraft }
+	// std::array<Vehicle::type, 4>{ Land, Watercraft, Amphibious, Aircraft }
 	std::size_t outerVehicleValuesCount = Vehicle::enum_count(nested_enum::OuterNodes);
 	// 3
 	auto outerVehicleTypes = Vehicle::enum_subtypes<nested_enum::OuterNodes>();
@@ -115,7 +114,7 @@ The following parameters are only present for the topmost enum type
 	auto minicompactCarIds = Vehicle::Land::Car::Minicompact::enum_ids();
 	// std::array<std::string_view, 3>{ "1st", "2nd", "3rd" }
 	auto minicompactCarStringsAndIds = Vehicle::Land::Car::Minicompact::enum_names_and_ids();
-	// std::array<std::pair<std::string_view, std::string_view>, 3>{ 
+	// std::array<std::pair<std::string_view, std::optional<std::string_view>>, 3>{ 
 	//   { "Category::Vehicle::Land::Car::Minicompact::Fiat_500"   , "1st" }, 
 	//   { "Category::Vehicle::Land::Car::Minicompact::Hyundai_i10", "2nd" }, 
 	//   { "Category::Vehicle::Land::Car::Minicompact::Toyota_Aygo", "3rd" } }
@@ -126,9 +125,9 @@ The following parameters are only present for the topmost enum type
 	std::size_t allCategoriesCount = Vehicle::enum_count_recursive(nested_enum::InnerNodes);
 	// 6
 	auto allCarEnumValues = Vehicle::Land::Car::enum_values_recursive<nested_enum::AllNodes>();
-	// std::tuple<std::array<Vehicle::Land::Car::(internal enum type), 6>,
-	//            std::array<Vehicle::Land::Car::Minicompact::(internal enum type), 3>,
-	//            std::array<Vehicle::Land::Car::Subcompact::(internal enum type), 3>>
+	// std::tuple<std::array<Vehicle::Land::Car::type, 6>,
+	//            std::array<Vehicle::Land::Car::Minicompact::type, 3>,
+	//            std::array<Vehicle::Land::Car::Subcompact::type, 3>>
 	auto allCarEnumStrings = Vehicle::Land::Car::enum_names_recursive<nested_enum::OuterNodes>();
 	// std::array<std::string_view, 10>{  
 	//   "Vehicle::Land::Car::Compact", "Vehicle::Land::Car::MidSize", 
@@ -145,7 +144,7 @@ The following parameters are only present for the topmost enum type
 	```c++
 	auto motorcycleEnumString = Vehicle::Land::enum_name(Vehicle::Land::Motorcycle, true);
 	// "Motorcycle"
-	auto CSegmentCar = Vehicle::enum_integer_recursive_by_id<"C-segment">();
+	auto CSegmentCar = Vehicle::enum_integer_by_id_recursive<"C-segment">();
 	// std::uint64_t(30)
 	auto fullSizeCarValue = Vehicle::enum_value_recursive<"Category::Vehicle::Land::Car::FullSize">();
 	// Vehicle::Land::Car{ value = Vehicle::Land::Car::(internal enum type)::FullSize }
@@ -165,5 +164,5 @@ The following parameters are only present for the topmost enum type
 	  do_thing(Vehicle::Land::Car);
 	}
 	```
-
-
+---
+### Thanks to David Mazières and their [blog post](https://www.scs.stanford.edu/~dm/blog/va-opt.html) on `__VA_OPT__` for inspiring this library!
