@@ -2,7 +2,7 @@
 
 Header-only fully-constexpr zero-dependency C++20 library for nestable enums with name reflection and string identification 
 
-Currently tested working compiler versions: gcc 10.1, clang 13.0.0, msvc 19.30 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work (**does not rely** on compiler specific features like `__PRETTY_FUNCTION__` or `FUNCSIG`)
+Currently tested working compiler versions: gcc 10.1, clang 13.0.0, msvc 19.31 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work (**does not rely** on compiler specific features like `__PRETTY_FUNCTION__` or `FUNCSIG`)
 
 ---
 To start off, create your enum with the `NESTED_ENUM` macro
@@ -41,12 +41,15 @@ You might be wondering "Ok, what's going on here?". No worries, the macro syntax
 
  - [underlying type] - any integral type that can be used for a normal enum/enum class. By default int64_t is used if underlying type is not specified 
 
- - [extra input specifier + extra inputs] - `VAL`/`ID`/`TYPE`/`VAL_ID`/`VAL_TYPE`/`ID_TYPE`/`VAL_ID_TYPE`, these specifiers designate how the following inputs are going to be interpreted: `VAL` - assigns a numeric value to the enum entry, `ID` - allows you to specify an extra string you can identify the entry by, `TYPE` - specifies a supplementary type that can be accessed under *`enum name`***::**`linked_type`
+ - [extra input specifier + extra inputs] - `VAL`/`ID`/`TYPE`/`VAL_ID`/`VAL_TYPE`/`ID_TYPE`/`VAL_ID_TYPE`, these specifiers designate how the following inputs are going to be interpreted: `VAL` - assigns a numeric value to the enum entry, `ID` - allows you to specify an extra string you can identify the entry by, `TYPE` - specifies a supplementary type that can be accessed under *`enum name`*::`linked_type`
  - specialisation specifier - *`blank`*/`ENUM`/`DEFER`, defaulting an sub-enum / immediately creating a given sub-enum / only forward declaring one that will be created by the user with `NESTED_ENUM_FROM` (when specialising the order of the names must be the same as in the entry section)
 
-The following parameters are only present for the topmost enum type
+The following parameters are only present for the topmost enum type:
  - [global prefix] - a string literal that you can prepend to all names under this nested_enum (can used to add namespace name or any other identifier in front)
  - [linked type] - does the same as specifing a `TYPE` for a value but for the topmost enum type
+
+### Inner/Outer enums
+Any enum value that is itself an enum is regarded as an `Inner` type of the parent's subtypes. On the other hand any enum value that doesn't have any children is an `Outer` type. And finally `All` refers to all subtypes. All functions inside a `nested_enum` can take an argument to choose between subtypes of that enum.
 
 ### Miscelaneous Information
  * You can define `NESTED_ENUM_DEFAULT_ENUM_TYPE` before including the header to change the default enum type from `std::int32_t`
@@ -54,6 +57,7 @@ The following parameters are only present for the topmost enum type
  * If not specified, the default linked_type is `void`
  * Enums are not default constructible in order to avoid situations where 0 is not a valid enum value
  * Because enums are just structs, they can be forward declared
+ * Defered types that are still not declared by the time a function that checks them in some way (i.e. any of the recursive functions), will be taken as `Outer`
 
 ## Function Examples (also on [godbolt](https://godbolt.org/z/oEvae49Yh))
  - Basic enum/reflection operations
@@ -103,13 +107,13 @@ The following parameters are only present for the topmost enum type
 	```c++
 	auto vehicleValues = Vehicle::enum_values();
 	// std::array<Vehicle::type, 4>{ Land, Watercraft, Amphibious, Aircraft }
-	std::size_t outerVehicleValuesCount = Vehicle::enum_count(nested_enum::OuterNodes);
+	std::size_t outerVehicleValuesCount = Vehicle::enum_count(nested_enum::Outer);
 	// 3
-	auto outerVehicleTypes = Vehicle::enum_subtypes<nested_enum::OuterNodes>();
+	auto outerVehicleTypes = Vehicle::enum_subtypes<nested_enum::Outer>();
 	// std::tuple<std::type_identity<struct Vehicle::Watercraft>, 
 	//            std::type_identity<struct Vehicle::Amphibious>, 
 	//            std::type_identity<struct Vehicle::Aircraft>>{}
-	auto innerVehicleStrings = Vehicle::enum_names<nested_enum::InnerNodes>(false);
+	auto innerVehicleStrings = Vehicle::enum_names<nested_enum::Inner>(false);
 	// std::array<std::string_view, 1>{ "Category::Vehicle::Land" }
 	auto minicompactCarIds = Vehicle::Land::Car::Minicompact::enum_ids();
 	// std::array<std::string_view, 3>{ "1st", "2nd", "3rd" }
@@ -122,13 +126,13 @@ The following parameters are only present for the topmost enum type
 
  - Recursive operations
 	```c++
-	std::size_t allCategoriesCount = Vehicle::enum_count_recursive(nested_enum::InnerNodes);
+	std::size_t allCategoriesCount = Vehicle::enum_count_recursive(nested_enum::Inner);
 	// 6
-	auto allCarEnumValues = Vehicle::Land::Car::enum_values_recursive<nested_enum::AllNodes>();
+	auto allCarEnumValues = Vehicle::Land::Car::enum_values_recursive<nested_enum::All>();
 	// std::tuple<std::array<Vehicle::Land::Car::type, 6>,
 	//            std::array<Vehicle::Land::Car::Minicompact::type, 3>,
 	//            std::array<Vehicle::Land::Car::Subcompact::type, 3>>
-	auto allCarEnumStrings = Vehicle::Land::Car::enum_names_recursive<nested_enum::OuterNodes>();
+	auto allCarEnumStrings = Vehicle::Land::Car::enum_names_recursive<nested_enum::Outer>();
 	// std::array<std::string_view, 10>{  
 	//   "Vehicle::Land::Car::Compact", "Vehicle::Land::Car::MidSize", 
 	//   "Vehicle::Land::Car::FullSize", "Vehicle::Land::Car::Luxury", 
