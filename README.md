@@ -59,7 +59,7 @@ Any enum value that is itself an enum is regarded as an `Inner` type of the pare
  * Because enums are just structs, they can be forward declared
  * Defered types that are still not declared by the time a function that checks them in some way (i.e. any of the recursive functions), will be taken as `Outer`
 
-## Function Examples (also on [godbolt](https://godbolt.org/z/oEvae49Yh))
+## Function Examples (also on [godbolt](https://godbolt.org/z/xxo63x63o))
  - Basic enum/reflection operations
 
 	```c++
