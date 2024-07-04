@@ -79,9 +79,6 @@ namespace nested_enum
 
   namespace detail
   {
-    template<typename Derived, typename Base>
-    concept DerivedOrIs = std::is_nothrow_convertible_v<Base, Derived> || std::is_same_v<Base, Derived>;
-
     template<typename T>
     concept Enum = std::is_enum_v<T>;
 
@@ -106,17 +103,8 @@ namespace nested_enum
       }
     };
 
-    template<std::size_t N, typename T, typename ... Rest>
-    struct get_type_impl { using type = typename get_type_impl<N - 1, Rest...>::type; };
-
-    template<typename T, typename ... Rest>
-    struct get_type_impl<0, T, Rest...> { using type = T; };
-
-    template<std::size_t N, typename T>
-    struct get_type {};
-
-    template<std::size_t N, typename ... Ts>
-    struct get_type<N, type_list<Ts...>> { using type = typename get_type_impl<N, Ts...>::type; };
+    template<typename T, typename ... Ts>
+    T get_first_type(type_list<T, Ts...>) { return T{}; }
 
     template<typename T = int>
     struct opt { bool isInitialised = false; T value = 0; };
@@ -232,29 +220,36 @@ namespace nested_enum
         return tupleOrArray;
       else
       {
-        constexpr auto function = []<auto Self, typename T, std::size_t N, typename ... Args>(std::array<T, N> first, Args ... args)
+        auto function = []<typename T, std::size_t M, typename ... Args>(std::array<T, M> first, Args ... args)
         {
           if constexpr (sizeof...(Args) == 0)
             return first;
           else
           {
-            auto next = Self.template operator()<Self>(args...);
-            std::array<T, N + next.size()> newArray;
+            constexpr std::size_t N = M + (args.size() + ...);
 
-            for (std::size_t i = 0; i < first.size(); i++)
-              newArray[i] = first[i];
+            std::array<T, N> newArray;
+            std::size_t index = 0;
 
-            for (std::size_t i = 0; i < next.size(); i++)
-              newArray[first.size() + i] = next[i];
+            auto iterate = [&index, &newArray](auto current)
+            {
+              for (std::size_t i = 0; i < current.size(); i++)
+                newArray[index + i] = current[i];
+
+              index += current.size();
+            };
+
+            iterate(first);
+            (iterate(args), ...);
 
             return newArray;
           }
         };
 
-        return[&]<std::size_t ... Indices>(TupleOrArray &&tupleToExpand, std::index_sequence<Indices...>)
+        return [&]<std::size_t ... Indices>(std::index_sequence<Indices...>)
         {
-          return function.template operator()<function>(std::get<Indices>(tupleToExpand)...);
-        }(std::forward<TupleOrArray>(tupleOrArray), std::make_index_sequence<std::tuple_size_v<TupleOrArray>>{});
+          return function(std::get<Indices>(tupleOrArray)...);
+        }(std::make_index_sequence<std::tuple_size_v<TupleOrArray>>{});
       }
     }
 
@@ -301,6 +296,7 @@ namespace nested_enum
 
     template<class, class>
     friend struct nested_enum;
+    using nested_enum_tag = void;
 
     // returns the reflected type name of the enum 
     static constexpr auto name(bool clean = false) noexcept -> std::string_view
@@ -683,9 +679,7 @@ namespace nested_enum
             }
           };
 
-          auto subtypesToQuery = (checkQueries.template operator()<Ts>() + ...);
-
-          return subtypesToQuery;
+          return (checkQueries.template operator()<Ts>() + ...);
         }(E::subtypes);
 
         // returning only the values if we don't have any subtypes to query
@@ -951,7 +945,7 @@ namespace nested_enum
         return {};
       else
       {
-        using subType = typename detail::get_type<0, decltype(typeId)>::type;
+        using subType = decltype(detail::get_first_type(typeId));
         return subType::enum_name(value, clean);
       }
     }
@@ -997,7 +991,7 @@ namespace nested_enum
         return {};
       else
       {
-        using subType = typename detail::get_type<0, decltype(typeId)>::type;
+        using subType = decltype(detail::get_first_type(typeId));
         return subType::enum_id(value);
       }
     }
@@ -1045,7 +1039,7 @@ namespace nested_enum
         return std::optional<typename E::underlying_type>{};
       else
       {
-        using subType = typename detail::get_type<0, decltype(typeId)>::type;
+        using subType = decltype(detail::get_first_type(typeId));
         return subType::enum_integer(std::string_view(enumName));
       }
     }
@@ -1063,7 +1057,7 @@ namespace nested_enum
         return std::optional<typename E::underlying_type>{};
       else
       {
-        using subType = typename detail::get_type<0, decltype(typeId)>::type;
+        using subType = decltype(detail::get_first_type(typeId));
         return subType::enum_integer_by_id(std::string_view(id));
       }
     }
@@ -1081,7 +1075,7 @@ namespace nested_enum
         return std::optional<E>{};
       else
       {
-        using subType = typename detail::get_type<0, decltype(typeId)>::type;
+        using subType = decltype(detail::get_first_type(typeId));
         return subType::enum_value(std::string_view(enumName));
       }
     }
@@ -1099,14 +1093,14 @@ namespace nested_enum
         return std::optional<E>{};
       else
       {
-        using subType = typename detail::get_type<0, decltype(typeId)>::type;
+        using subType = decltype(detail::get_first_type(typeId));
         return subType::enum_value_by_id(std::string_view(id));
       }
     }
   };
 
   template<class E>
-  concept NestedEnum = detail::DerivedOrIs<E, nested_enum<E>>;
+  concept NestedEnum = requires { typename E::nested_enum_tag; };
 
   // helper function for doing recursive iteration over types with enum_subtypes()
   // it is intended for expanding branches without needing to write them manually
@@ -1140,22 +1134,22 @@ namespace nested_enum
     return Lambda.template operator()<Lambda, Ts...>(std::forward<Args>(args)...);
   }
 
-  template <typename T>
-  constexpr bool operator==(const nested_enum<T> &left, const nested_enum<T> &right) noexcept
+  template <typename E, typename P>
+  constexpr bool operator==(const nested_enum<E, P> &left, const nested_enum<E, P> &right) noexcept
   {
-    return static_cast<const T &>(left).internalValue == static_cast<const T &>(right).internalValue;
+    return static_cast<const E &>(left).internalValue == static_cast<const E &>(right).internalValue;
   }
 
-  template <typename T>
-  constexpr bool operator==(const nested_enum<T> &left, const typename T::Value &right) noexcept
+  template <typename E, typename P>
+  constexpr bool operator==(const nested_enum<E, P> &left, const typename E::Value &right) noexcept
   {
-    return static_cast<const T &>(left).internalValue == right;
+    return static_cast<const E &>(left).internalValue == right;
   }
 
-  template <typename T>
-  constexpr bool operator==(const typename T::Value &left, const nested_enum<T> &right) noexcept
+  template <typename E, typename P>
+  constexpr bool operator==(const typename E::Value &left, const nested_enum<E, P> &right) noexcept
   {
-    return left == static_cast<const T &>(right).internalValue;
+    return left == static_cast<const E &>(right).internalValue;
   }
 }
 
@@ -1274,6 +1268,7 @@ namespace nested_enum
 #define NESTED_ENUM_INTERNAL_DEFINE_ENUM_FINAL1(name, ...) 
 #define NESTED_ENUM_INTERNAL_DEFINE_ENUM_FINAL2(name, ...) = __VA_ARGS__
 
+#define NESTED_ENUM_INTERNAL_STRUCT_IDENTITY(typeName) struct typeName
 
 // this is where the magic happens, so i'll write down how it works before i forget
 // the way for_each works is through macro deferred expressions and continuous rescanning by EXPAND
@@ -1296,7 +1291,6 @@ namespace nested_enum
 #define NESTED_ENUM_INTERNAL_STRUCT_PREP3(parent, typeName, treeCall, ...) NESTED_ENUM_INTERNAL_STRUCT_PREP_CALL(parent, typeName, treeCall __VA_OPT__(,) __VA_ARGS__)
 #define NESTED_ENUM_INTERNAL_STRUCT_PREP_CALL(parent, typeName, treeCall, ...)  NESTED_ENUM_INTERNAL_TREE_##treeCall(parent, typeName, __VA_ARGS__)
 
-#define NESTED_ENUM_INTERNAL_STRUCT_IDENTITY(typeName) struct typeName
 
 #define NESTED_ENUM_INTERNAL_DEFINE_CONSTRUCTORS(typeName)                                                                                    \
   private:                                                                                                                                    \

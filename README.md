@@ -2,7 +2,7 @@
 
 Header-only fully-constexpr zero-dependency C++20 library for nestable enums with name reflection and string identification 
 
-Currently tested working compiler versions: gcc 10.1, clang 13.0.0, msvc 19.31 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work (**does not rely** on compiler specific features like `__PRETTY_FUNCTION__` or `FUNCSIG`)
+Tested minimum compiler versions: gcc 10.1, clang 13.0.0, msvc 19.31 (needs /Zc:preprocessor), but technically any C++20 compiler with a conformant preprocessor should work (**does not rely** on compiler specific features like `__PRETTY_FUNCTION__` or `FUNCSIG`)
 
 ---
 To start off, create your enum with the `NESTED_ENUM` macro
@@ -37,7 +37,7 @@ NESTED_ENUM_FROM(Vehicle::Land, Motorcycle, (Scooter, Cruiser, Sport, OffRoad))
 ```
 You might be wondering "Ok, what's going on here?". No worries, the macro syntax is fairly simple. Every enum has 3 comma separated sections (definition, entries, specialisations), where all parameters in [] are optional: 
 
-`(name, [underlying type], [global string prefix], [linked type])` , `((enum value name, [extra input specifier], [extra inputs...]), enum values...)` , `(specialisation specifier, child definition, child entries, child entries' specialisations...), more entry specialisations...)`
+`(name, [underlying type], [global prefix], [linked type])` , `((enum value name, [extra input specifier], [extra inputs...]), enum values...)` , `(specialisation specifier, child definition, child entries, child entries' specialisations...), more entry specialisations...)`
 
  - [underlying type] - any integral type that can be used for a normal enum/enum class. By default int64_t is used if underlying type is not specified 
 
@@ -52,12 +52,12 @@ The following parameters are only present for the topmost enum type:
 Any enum value that is itself an enum is regarded as an `Inner` type of the parent's subtypes. On the other hand any enum value that doesn't have any children is an `Outer` type. And finally `All` refers to all subtypes. All functions inside a `nested_enum` can take an argument to choose between subtypes of that enum.
 
 ### Miscelaneous Information
- * You can define `NESTED_ENUM_DEFAULT_ENUM_TYPE` before including the header to change the default enum type from `std::int32_t`
+ * You can change `NESTED_ENUM_DEFAULT_ENUM_TYPE` macro define to change the default enum type from `std::int32_t`
  * If an enum value doesn't need to be specialised simply passing in `()` will explicitly default it. If any of the sections have only one argument, the parentheses can be omitted
  * If not specified, the default linked_type is `void`
  * Enums are not default constructible in order to avoid situations where 0 is not a valid enum value
  * Because enums are just structs, they can be forward declared
- * Defered types that are still not declared by the time a function that checks them in some way (i.e. any of the recursive functions), will be taken as `Outer`
+ * Defered types that are still not declared by the time a function that checks them in some way (i.e. any of the recursive functions), will be taken as `Outer` types
 
 ## Function Examples (also on [godbolt](https://godbolt.org/z/xxo63x63o))
  - Basic enum/reflection operations
