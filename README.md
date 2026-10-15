@@ -55,12 +55,13 @@ Any enum value that is itself an enum is regarded as an `Inner` type of the pare
 ### Miscelaneous Information
  * You can change `NESTED_ENUM_DEFAULT_ENUM_TYPE` macro define to change the default enum type from `int`
  * If an enum value doesn't need to be specialised simply passing in `()` will explicitly default it. If any of the sections have only one argument, the parentheses can be omitted
+ * Any of the arguments can be parenthesised in order to avoid breaking the underlying macros
  * Enums are not default constructible in order to avoid situations where 0 is not a valid enum value
  * Because enums are just structs, they can be forward declared
  * Instances of enum types can be used as non-type template parameters
  * Defered types that are still not declared by the time a function that checks them in some way (i.e. any of the recursive functions), will be categorised as `Outer` types
 
-## Function Examples (also on [godbolt](https://godbolt.org/z/xxo63x63o))
+## Function Examples (also on [godbolt](https://godbolt.org/z/dj5T5neea))
  - Basic enum/reflection operations
 
 	```cpp
